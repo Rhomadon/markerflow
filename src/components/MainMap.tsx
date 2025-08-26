@@ -1,10 +1,11 @@
 "use client"
 
-import { useEffect, useState } from "react"
-import { MapContainer, TileLayer, Marker } from "react-leaflet"
-import { LatLngExpression, LatLngBoundsExpression } from "leaflet"
+import { useEffect, useState, useRef } from "react"
+import { MapContainer, TileLayer, Marker, useMap } from "react-leaflet"
+import { LatLngExpression, LatLngBoundsExpression, LatLngTuple } from "leaflet"
 import { createEntityIcon } from "@/components/icons/EntityIcon"
 
+import L from "leaflet"
 import "leaflet/dist/leaflet.css"
 import "leaflet-defaulticon-compatibility"
 
@@ -14,6 +15,7 @@ interface Entity {
   angle: number
   label: string
   ignition: string
+  timestamp: string
 }
 
 interface RawEntity {
@@ -23,6 +25,7 @@ interface RawEntity {
   label?: string
   id_history?: number
   ignition?: string
+  timestamp_gps?: string
 }
 
 function isRawEntity(obj: unknown): obj is RawEntity {
@@ -30,6 +33,78 @@ function isRawEntity(obj: unknown): obj is RawEntity {
     typeof obj === "object" &&
     obj !== null &&
     ("latitude" in obj || "longitude" in obj)
+  )
+}
+
+const AnimatedMarker = ({ positions }: { positions: Entity[] }) => {
+	const markerRef = useRef<L.Marker | null>(null)
+  const map = useMap()
+
+  function interpolateAngle(a1: number, a2: number, t: number) {
+    const diff = ((a2 - a1 + 540) % 360) - 180
+    return a1 + diff * t
+  }
+
+  useEffect(() => {
+    if (!positions.length) return
+
+    let i = 0
+
+    const move = () => {
+      const current = positions[i]
+      const next = positions[i + 1]
+      if (!next) return
+
+      const from: LatLngTuple = [current.latitude, current.longitude]
+      const to: LatLngTuple = [next.latitude, next.longitude]
+
+      const t1 = new Date(current.timestamp).getTime()
+      const t2 = new Date(next.timestamp).getTime()
+      const duration = Math.max(t2 - t1, 100)
+
+      const start = performance.now()
+
+      const step = (now: number) => {
+        const elapsed = now - start
+        const progress = Math.min(elapsed / duration, 1)
+
+        const lat = from[0] + (to[0] - from[0]) * progress
+        const lng = from[1] + (to[1] - from[1]) * progress
+        const newAngle = interpolateAngle(current.angle, next.angle, progress)
+
+        if (markerRef.current) {
+          markerRef.current.setLatLng([lat, lng])
+          markerRef.current.setIcon(
+            createEntityIcon(newAngle, current.label, current.ignition)
+          )
+				}
+
+        // map.panTo([lat, lng], { animate: false })
+
+        if (progress < 1) {
+          requestAnimationFrame(step)
+        } else {
+          i++
+          move()
+        }
+      }
+
+      requestAnimationFrame(step)
+    }
+
+    move()
+  }, [positions, map])
+
+  return (
+    <Marker
+      ref={markerRef}
+      position={[positions[0].latitude, positions[0].longitude]}
+      icon={createEntityIcon(
+        positions[0].angle,
+        positions[0].label,
+        positions[0].ignition
+      )}
+    />
   )
 }
 
@@ -43,12 +118,10 @@ export default function MainMap() {
           method: "GET",
           headers: { "Content-Type": "application/json" },
         })
-
         if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`)
-
         const result = await res.json()
-        const rawArray: RawEntity[] = Array.isArray(result) ? result : [result]
 
+        const rawArray: RawEntity[] = Array.isArray(result) ? result : [result]
         const mapped: Entity[] = rawArray
           .filter(isRawEntity)
           .map((item, idx) => ({
@@ -57,6 +130,7 @@ export default function MainMap() {
             angle: item.angle ?? 0,
             label: item.label ?? `Entity ${item.id_history ?? idx}`,
             ignition: item.ignition ?? "false",
+            timestamp: item.timestamp_gps ?? new Date().toISOString(),
           }))
 
         setData(mapped)
@@ -66,14 +140,14 @@ export default function MainMap() {
     }
 
     fetchData()
-    const interval = setInterval(fetchData, 5000)
+    const interval = setInterval(fetchData, 30000)
     return () => clearInterval(interval)
   }, [])
 
   const defaultCenter: LatLngExpression = [-2.5489, 118.0149]
   const bounds: LatLngBoundsExpression = [
-    [-90, -180],
-    [90, 180],
+    [-90, -Infinity],
+    [90, Infinity],
   ]
 
   return (
@@ -94,13 +168,7 @@ export default function MainMap() {
           url="https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}"
           subdomains={["mt0", "mt1", "mt2", "mt3"]}
         />
-        {data.map((pos, idx) => (
-          <Marker
-            key={pos.label ?? idx}
-            position={[pos.latitude, pos.longitude]}
-            icon={createEntityIcon(pos.angle, pos.label, pos.ignition)}
-          />
-        ))}
+        {data.length > 0 && <AnimatedMarker positions={data} />}
       </MapContainer>
     </div>
   )
