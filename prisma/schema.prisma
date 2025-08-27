@@ -10,11 +10,11 @@ datasource db {
 model m_raw {
   id_raw             BigInt          @id @default(autoincrement())
   imei               String?         @db.VarChar(15)
-  timestamp_received DateTime?
+  timestamp_received DateTime?       @default(now())
   raw                String?
   remote_address     String?         @db.VarChar(15)
-  remote_port        String?         @db.VarChar(5)
-  histories          m_raw_history[]
+  remote_port        Int?
+  histories m_raw_history[] @relation("RawHistories")
 }
 
 model m_raw_history {
@@ -24,15 +24,31 @@ model m_raw_history {
   angle         Int?
   data          Json?
   event_id      Int?
-  id_raw        BigInt?
-  latitude      Float?
-  longitude     Float?
-  number_data   Int?      @db.SmallInt
-  satellites    Int?      @db.SmallInt
+  id_raw        BigInt
+  latitude      Decimal?   @db.Decimal(10, 7)
+  longitude     Decimal?   @db.Decimal(10, 7)
+  number_data   Int?       @db.SmallInt
+  satellites    Int?       @db.SmallInt
   speed         Int?
-  raw           m_raw?    @relation(fields: [id_raw], references: [id_raw])
+  raw           m_raw      @relation("RawHistories", fields: [id_raw], references: [id_raw])
 
   @@unique([timestamp_gps, longitude, latitude, altitude, angle, satellites, speed, event_id], map: "unique_raw_data")
+}
+
+model m_owner {
+  id_owner   BigInt    @id @default(autoincrement())
+  email      String    @unique(map: "unique_m_owner_email") @db.VarChar(300)
+  password   String?
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  gps        m_gps[]
+}
+
+model m_gps {
+  id_gps   BigInt   @id @default(autoincrement())
+  id_owner BigInt
+  imei     String?  @db.VarChar(15)
+  owner    m_owner  @relation(fields: [id_owner], references: [id_owner])
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.

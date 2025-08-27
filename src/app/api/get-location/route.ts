@@ -10,7 +10,7 @@ function toJSON(obj: unknown) {
 export async function GET() {
   try {
     const result = await prisma.m_raw_history.findMany({
-      where: { id_raw: "667535499467952128" },
+      where: { id_raw: "667325929160183808" },
       orderBy: { timestamp_gps: "asc" }
     })
 

@@ -14,7 +14,6 @@ interface Entity {
   longitude: number
   angle: number
   label: string
-  ignition: string
   timestamp: string
 }
 
@@ -24,23 +23,18 @@ interface RawEntity {
   angle?: number
   label?: string
   id_history?: number
-  ignition?: string
   timestamp_gps?: string
 }
 
 function isRawEntity(obj: unknown): obj is RawEntity {
-  return (
-    typeof obj === "object" &&
-    obj !== null &&
-    ("latitude" in obj || "longitude" in obj)
-  )
+  return typeof obj === "object" && obj !== null && ("latitude" in obj || "longitude" in obj)
 }
 
 const AnimatedMarker = ({ positions }: { positions: Entity[] }) => {
-	const markerRef = useRef<L.Marker | null>(null)
+  const markerRef = useRef<L.Marker | null>(null)
   const map = useMap()
 
-  function interpolateAngle(a1: number, a2: number, t: number) {
+  const interpolateAngle = (a1: number, a2: number, t: number) => {
     const diff = ((a2 - a1 + 540) % 360) - 180
     return a1 + diff * t
   }
@@ -58,32 +52,22 @@ const AnimatedMarker = ({ positions }: { positions: Entity[] }) => {
       const from: LatLngTuple = [current.latitude, current.longitude]
       const to: LatLngTuple = [next.latitude, next.longitude]
 
-      const t1 = new Date(current.timestamp).getTime()
-      const t2 = new Date(next.timestamp).getTime()
-      const duration = Math.max(t2 - t1, 100)
-
+      const duration = Math.max(new Date(next.timestamp).getTime() - new Date(current.timestamp).getTime(), 100)
       const start = performance.now()
 
       const step = (now: number) => {
-        const elapsed = now - start
-        const progress = Math.min(elapsed / duration, 1)
-
+        const progress = Math.min((now - start) / duration, 1)
         const lat = from[0] + (to[0] - from[0]) * progress
         const lng = from[1] + (to[1] - from[1]) * progress
-        const newAngle = interpolateAngle(current.angle, next.angle, progress)
+        const angle = interpolateAngle(current.angle, next.angle, progress)
 
         if (markerRef.current) {
           markerRef.current.setLatLng([lat, lng])
-          markerRef.current.setIcon(
-            createEntityIcon(newAngle, current.label, current.ignition)
-          )
-				}
+          markerRef.current.setIcon(createEntityIcon(angle, current.label))
+        }
 
-        // map.panTo([lat, lng], { animate: false })
-
-        if (progress < 1) {
-          requestAnimationFrame(step)
-        } else {
+        if (progress < 1) requestAnimationFrame(step)
+        else {
           i++
           move()
         }
@@ -99,11 +83,7 @@ const AnimatedMarker = ({ positions }: { positions: Entity[] }) => {
     <Marker
       ref={markerRef}
       position={[positions[0].latitude, positions[0].longitude]}
-      icon={createEntityIcon(
-        positions[0].angle,
-        positions[0].label,
-        positions[0].ignition
-      )}
+      icon={createEntityIcon(positions[0].angle, positions[0].label)}
     />
   )
 }
@@ -114,14 +94,11 @@ export default function MainMap() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const res = await fetch("/api/get-location", {
-          method: "GET",
-          headers: { "Content-Type": "application/json" },
-        })
+        const res = await fetch("/api/get-location")
         if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`)
         const result = await res.json()
-
         const rawArray: RawEntity[] = Array.isArray(result) ? result : [result]
+
         const mapped: Entity[] = rawArray
           .filter(isRawEntity)
           .map((item, idx) => ({
@@ -129,7 +106,6 @@ export default function MainMap() {
             longitude: Number(item.longitude) || 0,
             angle: item.angle ?? 0,
             label: item.label ?? `Entity ${item.id_history ?? idx}`,
-            ignition: item.ignition ?? "false",
             timestamp: item.timestamp_gps ?? new Date().toISOString(),
           }))
 
